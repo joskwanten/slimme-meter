@@ -51,7 +51,8 @@ func ReadMessage(msgchan chan []byte) {
 				if buf[i] == '!' {
 					endFound = true
 					message = append(message, buf[0:i+1]...)
-					crc, err := strconv.ParseInt("0x"+string(buf[i+1:n-2]), 0, 32)
+					crcStr := strings.Replace(string(buf[i+1:n]), "\r\n","",-1)
+					crc, err := strconv.ParseInt("0x"+crcStr, 0, 32)
 					crcComp := int64(crc16(message))
 
 					if err == nil && crc == crcComp {
@@ -84,17 +85,30 @@ func main() {
 	go ReadMessage(messages)
 	for {
 		message := <-messages
-
-		//fmt.Printf("%s", message)
 		parts := strings.Split(string(message), "\r\n")
 		for i := 0; i < len(parts); i++ {
-			fmt.Printf("%s\n", parts[i])
 			res := r.FindStringSubmatch(parts[i])
-			names := r.SubexpNames()
-			for i, _ := range res {
-				if i != 0 {
-					fmt.Println(names[i], res[i])
+
+			if len(res) >= 3 {
+				if res[2] == "1.0.0" {
+					fmt.Printf("Tijd: %s\n", res[3])
+				} else if res[2] == "1.8.1" {
+					fmt.Printf("Totaalverbruik Tarief 1 (nacht): %s\n", res[3])
+				} else if res[2] == "1.8.2" {
+					fmt.Printf("Totaalverbruik Tarief 2 (dag): %s\n", res[3])
+				} else if res[2] == "2.8.1" {
+					fmt.Printf("Totaal geleverd Tarief 1 (nacht): %s\n", res[3])
+				} else if res[2] == "2.8.2" {
+					fmt.Printf("Totaal geleverd Tarief 2 (dag): %s\n", res[3])
+				} else if res[2] == "24.2.1" {
+					fmt.Printf("Gasverbruik: %s\n", res[3])
 				}
+				// names := r.SubexpNames()
+				// for i, _ := range res {
+				// 	if i != 0 {
+				// 		fmt.Println(names[i], res[i])
+				// 	}
+				// }
 			}
 		}
 	}
