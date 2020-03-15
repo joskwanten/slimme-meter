@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func crc16(buf []byte) uint {
@@ -51,7 +52,7 @@ func ReadMessage(msgchan chan []byte) {
 				if buf[i] == '!' {
 					endFound = true
 					message = append(message, buf[0:i+1]...)
-					crcStr := strings.Replace(string(buf[i+1:n]), "\r\n","",-1)
+					crcStr := strings.Replace(string(buf[i+1:n]), "\r\n", "", -1)
 					crc, err := strconv.ParseInt("0x"+crcStr, 0, 32)
 					crcComp := int64(crc16(message))
 
@@ -81,34 +82,69 @@ func ReadMessage(msgchan chan []byte) {
 
 func main() {
 	r := regexp.MustCompile(`(?P<device>\d+-\d+):(?P<key>\d+.\d+.\d+)(?P<values>(\(.*?\))+)`)
+	valueRegex := regexp.MustCompile(`\((\d*.\d*)\*kWh\)`)
+	timeRegex := regexp.MustCompile(`\((\d*)W\)`)
+	gasRegex := regexp.MustCompile(`\((\d*)W\)\((\d+.\d+)\*m3\)`)
 	messages := make(chan []byte)
 	go ReadMessage(messages)
 	for {
+		var tarief1Afgenomen, tarief2Afgenomen, tarief1Teruggeleverd, tarief2Teruggeleverd, gasVerbruik float64
+		var timestamp, gasTimestamp time.Time
 		message := <-messages
 		parts := strings.Split(string(message), "\r\n")
 		for i := 0; i < len(parts); i++ {
 			res := r.FindStringSubmatch(parts[i])
-
 			if len(res) >= 3 {
-				if res[2] == "1.0.0" {
-					fmt.Printf("Tijd: %s\n", res[3])
-				} else if res[2] == "1.8.1" {
-					fmt.Printf("Totaalverbruik Tarief 1 (nacht): %s\n", res[3])
-				} else if res[2] == "1.8.2" {
-					fmt.Printf("Totaalverbruik Tarief 2 (dag): %s\n", res[3])
-				} else if res[2] == "2.8.1" {
-					fmt.Printf("Totaal geleverd Tarief 1 (nacht): %s\n", res[3])
-				} else if res[2] == "2.8.2" {
-					fmt.Printf("Totaal geleverd Tarief 2 (dag): %s\n", res[3])
-				} else if res[2] == "24.2.1" {
-					fmt.Printf("Gasverbruik: %s\n", res[3])
+				switch res[2] {
+				case "1.0.0":
+					valResult := timeRegex.FindStringSubmatch(res[3])
+					if len(valResult) == 2 {
+						timestamp, _= time.Parse("20060102150405", "20" + valResult[1])
+					}
+				case "1.8.1":
+					valResult := valueRegex.FindStringSubmatch(res[3])
+					if len(valResult) == 2 {
+						tarief1Afgenomen, _ = strconv.ParseFloat(valResult[1], 64)
+					}
+				case "1.8.2":
+					valResult := valueRegex.FindStringSubmatch(res[3])
+					if len(valResult) == 2 {
+						tarief2Afgenomen, _ = strconv.ParseFloat(valResult[1], 64)
+					}
+				case "2.8.1":
+					valResult := valueRegex.FindStringSubmatch(res[3])
+					if len(valResult) == 2 {
+						tarief1Teruggeleverd, _ = strconv.ParseFloat(valResult[1], 64)
+					}
+				case "2.8.2":
+					valResult := valueRegex.FindStringSubmatch(res[3])
+					if len(valResult) == 2 {
+						tarief2Teruggeleverd, _ = strconv.ParseFloat(valResult[1], 64)
+					}
+				case "24.2.1":
+					valResult := gasRegex.FindStringSubmatch(res[3])
+					if len(valResult) == 3 {
+						gasTimestamp, _= time.Parse("20060102150405", "20" + valResult[1])
+						gasVerbruik, _ = strconv.ParseFloat(valResult[2], 64)
+					}
+
+					
 				}
-				// names := r.SubexpNames()
-				// for i, _ := range res {
-				// 	if i != 0 {
-				// 		fmt.Println(names[i], res[i])
-				// 	}
-				// }
+
+				if res[2] == "1.0.0" {
+					fmt.Printf("Tijd: %s\n", timestamp.Format("20060102150405"))
+				} else if res[2] == "1.8.1" {
+					fmt.Printf("Totaalverbruik Tarief 1 (nacht): %f\n", tarief1Afgenomen)
+				} else if res[2] == "1.8.2" {
+					fmt.Printf("Totaalverbruik Tarief 2 (dag): %f\n", tarief2Afgenomen)
+				} else if res[2] == "2.8.1" {
+					fmt.Printf("Totaal geleverd Tarief 1 (nacht): %f\n", tarief1Teruggeleverd)
+				} else if res[2] == "2.8.2" {
+					fmt.Printf("Totaal geleverd Tarief 2 (dag): %f\n", tarief2Teruggeleverd)
+				} else if res[2] == "24.2.1" {
+					fmt.Printf("Gas timestamp %s\n", gasTimestamp.Format("20060102150405"))
+					fmt.Printf("Gasverbruik: %f\n", gasVerbruik)
+				}
 			}
 		}
 	}
