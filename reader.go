@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/tarm/serial"
+	"github.com/tarm/serial"	
 	"log"
 	"regexp"
 	"strconv"
@@ -86,6 +86,7 @@ func main() {
 	timeRegex := regexp.MustCompile(`\((\d*)W\)`)
 	gasRegex := regexp.MustCompile(`\((\d*)W\)\((\d+.\d+)\*m3\)`)
 	messages := make(chan []byte)
+	var lastGasTimestamp time.Time
 	go ReadMessage(messages)
 	for {
 		var tarief1Afgenomen, tarief2Afgenomen, tarief1Teruggeleverd, tarief2Teruggeleverd, gasVerbruik float64
@@ -99,7 +100,7 @@ func main() {
 				case "1.0.0":
 					valResult := timeRegex.FindStringSubmatch(res[3])
 					if len(valResult) == 2 {
-						timestamp, _= time.Parse("20060102150405", "20" + valResult[1])
+						timestamp, _ = time.Parse("20060102150405", "20"+valResult[1])
 					}
 				case "1.8.1":
 					valResult := valueRegex.FindStringSubmatch(res[3])
@@ -124,11 +125,10 @@ func main() {
 				case "24.2.1":
 					valResult := gasRegex.FindStringSubmatch(res[3])
 					if len(valResult) == 3 {
-						gasTimestamp, _= time.Parse("20060102150405", "20" + valResult[1])
+						gasTimestamp, _ = time.Parse("20060102150405", "20"+valResult[1])
 						gasVerbruik, _ = strconv.ParseFloat(valResult[2], 64)
 					}
 
-					
 				}
 
 				if res[2] == "1.0.0" {
@@ -146,6 +146,26 @@ func main() {
 					fmt.Printf("Gasverbruik: %f\n", gasVerbruik)
 				}
 			}
+		}
+
+		if tarief1Afgenomen > 0 && tarief1Teruggeleverd > 0 && tarief2Afgenomen > 0 && tarief2Teruggeleverd > 0 {			
+			keyvalues := make(map[string]interface{})
+			keyvalues["type"] = "elektrisch"
+			keyvalues["tarief1Afgenomen"] = tarief1Afgenomen
+			keyvalues["tarief2Afgenomen"] = tarief2Afgenomen
+			keyvalues["tarief1Teruggeleverd"] = tarief1Teruggeleverd
+			keyvalues["tarief2Teruggeleverd"] = tarief2Teruggeleverd
+			fmt.Printf("Writing power usage to influx...\n")
+			Insert(timestamp, keyvalues)
+		}
+
+		if gasVerbruik > 0 && gasTimestamp != lastGasTimestamp {
+			lastGasTimestamp = gasTimestamp
+			keyvalues := make(map[string]interface{})
+			keyvalues["type"] = "gas"
+			keyvalues["gasverbruik"] = gasVerbruik
+			fmt.Printf("Writing natural gas usage to influx...\n")
+			Insert(gasTimestamp, keyvalues)
 		}
 	}
 	//log.Printf("%d", n)
