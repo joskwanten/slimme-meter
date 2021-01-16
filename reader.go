@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	"github.com/tarm/serial"	
 	"log"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tarm/serial"
 )
 
 func crc16(buf []byte) uint {
@@ -57,6 +58,7 @@ func ReadMessage(msgchan chan []byte) {
 					crcComp := int64(crc16(message))
 
 					if err == nil && crc == crcComp {
+						log.Printf("Received message '%s'", message)
 						msgchan <- message
 					} else {
 						log.Printf("Failed to parse message")
@@ -84,7 +86,7 @@ func main() {
 	r := regexp.MustCompile(`(?P<device>\d+-\d+):(?P<key>\d+.\d+.\d+)(?P<values>(\(.*?\))+)`)
 	valueRegex := regexp.MustCompile(`\((\d*.\d*)\*kWh\)`)
 	timeRegex := regexp.MustCompile(`\((\d*)W\)`)
-	gasRegex := regexp.MustCompile(`\((\d*)W\)\((\d+.\d+)\*m3\)`)
+	gasRegex := regexp.MustCompile(`\((\d*)[W,S]\)\((\d+.\d+)\*m3\)`)
 	messages := make(chan []byte)
 	var lastGasTimestamp time.Time
 	go ReadMessage(messages)
@@ -148,7 +150,7 @@ func main() {
 			}
 		}
 
-		if tarief1Afgenomen > 0 && tarief1Teruggeleverd > 0 && tarief2Afgenomen > 0 && tarief2Teruggeleverd > 0 {			
+		if tarief1Afgenomen > 0 && tarief1Teruggeleverd > 0 && tarief2Afgenomen > 0 && tarief2Teruggeleverd > 0 {
 			keyvalues := make(map[string]interface{})
 			keyvalues["type"] = "elektrisch"
 			keyvalues["tarief1Afgenomen"] = tarief1Afgenomen

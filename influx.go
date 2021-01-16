@@ -1,10 +1,10 @@
 package main
 
 import (
-	"log"
-	"time"	
 	_ "github.com/influxdata/influxdb1-client" // this is important because of the bug in go mod
 	client "github.com/influxdata/influxdb1-client/v2"
+	"log"
+	"time"
 )
 
 const (
