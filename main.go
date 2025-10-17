@@ -33,7 +33,7 @@ type Config struct {
 }
 
 func main() {
-	portName := "/dev/ttyS0" // pas aan naar jouw device
+	portName := "/dev/ttyUSB0" // pas aan naar jouw device
 	baud := 115200
 
 	c := &serial.Config{Name: portName, Baud: baud}
