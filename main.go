@@ -10,7 +10,7 @@ import (
 )
 
 // --- Structs voor type-safe JSONB ---
-type Electricity struct {
+type ElectricityN struct {
 	Tariff1          float64 `json:"tariff1,omitempty"`
 	Tariff2          float64 `json:"tariff2,omitempty"`
 	ExportTariff1    float64 `json:"export_tariff1,omitempty"`

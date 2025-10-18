@@ -3,10 +3,10 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,7 +16,7 @@ type Value struct {
 	Unit  string `json:"unit,omitempty"`
 }
 
-type Telegram struct {
+type RawTelegram struct {
 	Timestamp time.Time          `json:"timestamp"`
 	Values    map[string][]Value `json:"values"` // key = OBIS-code
 }
@@ -55,6 +55,131 @@ var obisMap = map[string]string{
 	"0-0:1.0.0": "Telegram.Timestamp",
 }
 
+type Electricity struct {
+	Delivered struct {
+		Tariff1 float64 `json:"Tariff1"` // kWh
+		Tariff2 float64 `json:"Tariff2"` // kWh
+	} `json:"Delivered"`
+	Returned struct {
+		Tariff1 float64 `json:"Tariff1"` // kWh
+		Tariff2 float64 `json:"Tariff2"` // kWh
+	} `json:"Returned"`
+	ActivePower   float64 `json:"ActivePower"`   // kW
+	ReactivePower float64 `json:"ReactivePower"` // kW
+	Current       struct {
+		L1 float64 `json:"L1"` // A
+		L2 float64 `json:"L2"` // A
+		L3 float64 `json:"L3"` // A
+	} `json:"Current"`
+}
+
+type Gas struct {
+	MeterID string    `json:"MeterID"`
+	Volume  float64   `json:"Volume"` // m3
+	Time    time.Time `json:"Time"`   // meetmoment
+}
+
+type Telegram struct {
+	Timestamp   time.Time   `json:"timestamp"` // telegram ontvangsttijd
+	Electricity Electricity `json:"electricity"`
+	Gas         Gas         `json:"gas"`
+}
+
+// parseFloat zet een string om naar float64, bij fouten return 0
+func parseFloat(s string) float64 {
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		log.Printf("parseFloat error: %v (input: %s)", err, s)
+		return 0
+	}
+	return f
+}
+
+// parseTime zet een DSMR-timestamp string om naar time.Time
+// DSMR timestamp formaat: YYMMDDhhmmssS, bijv "251018095310S"
+func parseTime(s string) time.Time {
+	t, err := time.Parse("060102150405S", s)
+	if err != nil {
+		log.Printf("parseTime error: %v (input: %s)", err, s)
+		return time.Time{}
+	}
+	return t
+}
+
+func MapRawTelegramDynamic(raw RawTelegram) (Telegram, error) {
+	var t Telegram
+	t.Timestamp = raw.Timestamp
+
+	// Elektriciteit en Gas structen tijdelijk
+	var elec Electricity
+	var gas Gas
+
+	for obis, values := range raw.Values {
+		if len(values) == 0 {
+			continue
+		}
+
+		// Kies eerste Value (meestal is er 1, behalve bij gas: [timestamp, volume])
+		v := values[0].Value
+
+		switch obis {
+		// ---------------------------
+		// Elektriciteit
+		// ---------------------------
+		case "Delivered.Tariff1":
+			elec.Delivered.Tariff1 = parseFloat(v)
+		case "Delivered.Tariff2":
+			elec.Delivered.Tariff2 = parseFloat(v)
+		case "Returned.Tariff1":
+			elec.Returned.Tariff1 = parseFloat(v)
+		case "Returned.Tariff2":
+			elec.Returned.Tariff2 = parseFloat(v)
+		case "ActivePower":
+			elec.ActivePower = parseFloat(v)
+		case "ReactivePower":
+			elec.ReactivePower = parseFloat(v)
+		case "Current.L1":
+			elec.Current.L1 = parseFloat(v)
+		case "Current.L2":
+			elec.Current.L2 = parseFloat(v)
+		case "Current.L3":
+			elec.Current.L3 = parseFloat(v)
+		case "Voltage.L1":
+			// elec.Voltage.L1 = parseFloat(v) // voeg Voltage substruct toe als nodig
+		case "Voltage.L2":
+		case "Voltage.L3":
+			// ...
+		case "Electricity.MeterID":
+			elecMeterID := v // alleen string
+			// je kunt evt. een field toevoegen in Electricity struct
+			_ = elecMeterID
+
+		// ---------------------------
+		// Gas
+		// ---------------------------
+		case "Gas.MeterID":
+			gas.MeterID = v
+		case "Gas.Volume":
+			if len(values) > 1 {
+				gas.Time = parseTime(values[0].Value)
+				gas.Volume = parseFloat(values[1].Value)
+			} else {
+				gas.Volume = parseFloat(v)
+			}
+
+		// ---------------------------
+		// Telegram timestamp
+		// ---------------------------
+		case "Telegram.Timestamp":
+			t.Timestamp = parseTime(v)
+		}
+	}
+
+	t.Electricity = elec
+	t.Gas = gas
+	return t, nil
+}
+
 func parseRawValue(raw string) Value {
 	re := regexp.MustCompile(`^(?P<value>[^*]+)(?:\*(?P<unit>.+))?$`)
 	match := re.FindStringSubmatch(raw)
@@ -86,7 +211,6 @@ func parseRawValues(raw string) []Value {
 
 	for _, m := range matches {
 		value := parseRawValue(m[1])
-		fmt.Printf("%s %s\n", value.Value, value.Unit)
 		values = append(values, value)
 	}
 
@@ -101,7 +225,7 @@ func main() {
 	}
 	defer file.Close()
 
-	t := Telegram{
+	t := RawTelegram{
 		Timestamp: time.Now().UTC(),
 		Values:    make(map[string][]Value),
 	}
@@ -124,9 +248,8 @@ func main() {
 		obis := line[:i]
 		valuesPart := line[i:] // alles inclusief haakjes, of gebruik line[i+1:len(line)-1] voor alleen binnen haakjes
 		if fieldName, ok := obisMap[obis]; ok {
-			fmt.Printf("%s: %s\n", fieldName, valuesPart)
 			values := parseRawValues(valuesPart)
-			t.Values[obisMap[obis]] = values
+			t.Values[fieldName] = values
 		}
 	}
 
@@ -136,4 +259,9 @@ func main() {
 
 	bytes, err := json.Marshal(t)
 	log.Printf("JSON: %s", bytes)
+
+	t2, _ := MapRawTelegramDynamic(t)
+	bytes2, err := json.Marshal(t2)
+	log.Printf("JSON: %s", bytes2)
+
 }
