@@ -54,7 +54,9 @@ func main() {
 	}
 }
 
+// validateCRC controleert de CRC16-checksum volgens DSMR P1-protocol
 func validateCRC(telegram string) bool {
+	// Vind ! en vier hex digits erna
 	idx := strings.LastIndex(telegram, "!")
 	if idx == -1 || idx+5 > len(telegram) {
 		return false
@@ -63,30 +65,32 @@ func validateCRC(telegram string) bool {
 	// Data vóór het '!' zonder trailing CR/LF
 	data := strings.TrimRight(telegram[:idx], "\r\n")
 
+	// verwacht hex (4 chars) direct na '!'
 	expectedHex := telegram[idx+1 : idx+5]
 
-	crc := calcCRC16([]byte(data))
+	crc := calcCRC16X25([]byte(data))
 	actualHex := fmt.Sprintf("%04X", crc)
+
+	// debug (haal weg als het werkt)
+	// fmt.Printf("DATA BYTES: % X\n", []byte(data))
+	// fmt.Printf("Expected: %s, Actual: %s\n", expectedHex, actualHex)
 
 	return strings.EqualFold(expectedHex, actualHex)
 }
 
-// calcCRC16 berekent de CRC16/X25 (DSMR gebruikt CRC16/X25)
-func calcCRC16(data []byte) uint16 {
-	const poly = uint16(0x1021)
-	const init = uint16(0xFFFF)
-	const xorOut = uint16(0xFFFF)
-
-	crc := init
+// calcCRC16X25 berekent CRC-16/X-25 (LSB-first, reflected poly 0x1021 as 0x8408)
+func calcCRC16X25(data []byte) uint16 {
+	var crc uint16 = 0xFFFF
 	for _, b := range data {
-		crc ^= uint16(b) << 8
+		crc ^= uint16(b)
 		for i := 0; i < 8; i++ {
-			if (crc & 0x8000) != 0 {
-				crc = (crc << 1) ^ poly
+			if (crc & 0x0001) != 0 {
+				crc = (crc >> 1) ^ 0x8408
 			} else {
-				crc <<= 1
+				crc >>= 1
 			}
 		}
 	}
-	return crc ^ xorOut
+	// final XOR
+	return ^crc
 }
