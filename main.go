@@ -54,14 +54,15 @@ func main() {
 	}
 }
 
-// validateCRC controleert de CRC16-checksum volgens DSMR P1-protocol
 func validateCRC(telegram string) bool {
 	idx := strings.LastIndex(telegram, "!")
 	if idx == -1 || idx+5 > len(telegram) {
 		return false
 	}
 
-	data := telegram[:idx]
+	// Data vóór het '!' zonder trailing CR/LF
+	data := strings.TrimRight(telegram[:idx], "\r\n")
+
 	expectedHex := telegram[idx+1 : idx+5]
 
 	crc := calcCRC16([]byte(data))
