@@ -2,38 +2,17 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"log"
-	"time"
+	"strings"
 
 	"github.com/tarm/serial"
+	// zie uitleg hieronder
 )
 
-// --- Structs voor type-safe JSONB ---
-type ElectricityN struct {
-	Tariff1          float64 `json:"tariff1,omitempty"`
-	Tariff2          float64 `json:"tariff2,omitempty"`
-	ExportTariff1    float64 `json:"export_tariff1,omitempty"`
-	PowerDeliveredKW float64 `json:"power_delivered_kW,omitempty"`
-}
-
-type Measurement struct {
-	Timestamp   time.Time   `json:"timestamp"`
-	Electricity Electricity `json:"electricity,omitempty"`
-	Gas         float64     `json:"gas,omitempty"`
-}
-
-// --- Config ---
-type Config struct {
-	SerialPort string
-	Baud       int
-	PGDSN      string
-	DeviceID   string
-	Debug      bool
-}
-
 func main() {
-	portName := "/dev/ttyUSB0" // pas aan naar jouw device
+	portName := "/dev/ttyUSB0"
 	baud := 115200
 
 	c := &serial.Config{Name: portName, Baud: baud}
@@ -44,10 +23,69 @@ func main() {
 	defer s.Close()
 
 	scanner := bufio.NewScanner(s)
+	var buffer bytes.Buffer
+	inTelegram := false
+
 	for scanner.Scan() {
-		fmt.Println(scanner.Text())
+		line := scanner.Text()
+		if strings.HasPrefix(line, "/") {
+			// Nieuw telegram begint
+			buffer.Reset()
+			inTelegram = true
+		}
+
+		if inTelegram {
+			buffer.WriteString(line + "\n")
+
+			if strings.HasPrefix(line, "!") {
+				inTelegram = false
+				raw := buffer.String()
+				if validateCRC(raw) {
+					fmt.Println("✅ Valid telegram:\n", raw)
+				} else {
+					fmt.Println("❌ Invalid checksum:\n", raw)
+				}
+			}
+		}
 	}
+
 	if err := scanner.Err(); err != nil {
 		log.Printf("error reading from serial: %v", err)
 	}
+}
+
+// validateCRC controleert de CRC16-checksum volgens DSMR P1-protocol
+func validateCRC(telegram string) bool {
+	idx := strings.LastIndex(telegram, "!")
+	if idx == -1 || idx+5 > len(telegram) {
+		return false
+	}
+
+	data := telegram[:idx]
+	expectedHex := telegram[idx+1 : idx+5]
+
+	crc := calcCRC16([]byte(data))
+	actualHex := fmt.Sprintf("%04X", crc)
+
+	return strings.EqualFold(expectedHex, actualHex)
+}
+
+// calcCRC16 berekent de CRC16/X25 (DSMR gebruikt CRC16/X25)
+func calcCRC16(data []byte) uint16 {
+	const poly = uint16(0x1021)
+	const init = uint16(0xFFFF)
+	const xorOut = uint16(0xFFFF)
+
+	crc := init
+	for _, b := range data {
+		crc ^= uint16(b) << 8
+		for i := 0; i < 8; i++ {
+			if (crc & 0x8000) != 0 {
+				crc = (crc << 1) ^ poly
+			} else {
+				crc <<= 1
+			}
+		}
+	}
+	return crc ^ xorOut
 }
