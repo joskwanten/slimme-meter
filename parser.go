@@ -56,6 +56,8 @@ var obisMap = map[string]string{
 }
 
 type Electricity struct {
+	MeterID   string    `json:"MeterID"`
+	Time      time.Time `json:"Time"` // meetmoment
 	Delivered struct {
 		Tariff1 float64 `json:"Tariff1"` // kWh
 		Tariff2 float64 `json:"Tariff2"` // kWh
@@ -150,9 +152,7 @@ func MapRawTelegramDynamic(raw RawTelegram) (Telegram, error) {
 		case "Voltage.L3":
 			// ...
 		case "Electricity.MeterID":
-			elecMeterID := v // alleen string
-			// je kunt evt. een field toevoegen in Electricity struct
-			_ = elecMeterID
+			elec.MeterID = v
 
 		// ---------------------------
 		// Gas
@@ -172,6 +172,7 @@ func MapRawTelegramDynamic(raw RawTelegram) (Telegram, error) {
 		// ---------------------------
 		case "Telegram.Timestamp":
 			t.Timestamp = parseTime(v)
+			elec.Time = t.Timestamp
 		}
 	}
 
