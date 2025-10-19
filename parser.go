@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"fmt"
 	"log"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -211,4 +215,108 @@ func parseRawValues(raw string) []Value {
 	}
 
 	return values
+}
+
+func crc16(buf []byte) uint {
+	var crc uint = 0
+	for pos := 0; pos < len(buf); pos++ {
+		crc ^= uint(buf[pos]) // XOR byte into least sig. byte of crc
+
+		for i := 8; i != 0; i-- { // Loop over each bit
+			if (crc & 0x0001) != 0 { // If the LSB is set
+				crc >>= 1 // Shift right and XOR 0xA001
+				crc ^= 0xA001
+			} else {
+				// Else LSB is not set
+				crc >>= 1 // Just shift right
+			}
+		}
+	}
+	return crc
+}
+
+func getCRC(line string) (string, error) {
+	idx := strings.LastIndex(line, "!")
+	if idx == -1 || idx+5 > len(line) {
+		return "", fmt.Errorf("invalid CRC in telegram")
+	}
+	return strings.TrimRight(line[1:], "\r\n"), nil
+}
+
+func processTelegram(raw string) RawTelegram {
+	scanner := bufio.NewScanner(strings.NewReader(raw))
+	t := RawTelegram{
+		Timestamp: time.Now().UTC(),
+		Values:    make(map[string][]Value),
+	}
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue // lege regels overslaan
+		}
+
+		// --- Hier kun je de parsing doen ---
+		// Bijvoorbeeld OBIS-code + value/unit als string
+		i := strings.Index(line, "(")
+		if i < 0 {
+			continue
+		}
+
+		obis := line[:i]
+		valuesPart := line[i:] // alles inclusief haakjes, of gebruik line[i+1:len(line)-1] voor alleen binnen haakjes
+		if fieldName, ok := obisMap[obis]; ok {
+			values := parseRawValues(valuesPart)
+			t.Values[fieldName] = values
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("error scanning telegram: %v", err)
+	}
+
+	return t
+}
+
+func DSMRScanner(scanner *bufio.Scanner, callback func(telegram Telegram)) {
+	var buffer bytes.Buffer
+	inTelegram := false
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "/") {
+			// Nieuw telegram begint
+			buffer.Reset()
+			inTelegram = true
+		}
+
+		if inTelegram {
+			if strings.HasPrefix(line, "!") {
+				inTelegram = false
+				buffer.WriteString("!")
+				readCRC, _ := getCRC(line)
+				computedCRC := fmt.Sprintf("%04X", crc16(buffer.Bytes()))
+
+				if readCRC == computedCRC {
+					log.Printf("Valid telegram")
+					telegram, err := MapRawTelegramDynamic(processTelegram(buffer.String()))
+					if err != nil {
+						log.Printf("Error %s, skipping row", err)
+						continue
+					}
+
+					callback(telegram)
+
+				} else {
+					log.Println("Invalid checksum")
+				}
+			} else {
+				buffer.WriteString(line + "\r\n")
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("error reading from serial: %v", err)
+	}
 }

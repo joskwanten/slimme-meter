@@ -3,12 +3,17 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
-	"strings"
 	"testing"
 	"time"
 )
+
+func printTestTelegram(telegram Telegram) {
+	bytes, _ := json.Marshal(telegram)
+	fmt.Printf("JSON: %s", bytes)
+}
 
 func TestParser(t *testing.T) {
 	// Open je testbestand
@@ -25,26 +30,7 @@ func TestParser(t *testing.T) {
 
 	// Scanner voor regel-voor-regel lezen
 	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue // lege regels overslaan
-		}
-
-		// --- Hier kun je de parsing doen ---
-		// Bijvoorbeeld OBIS-code + value/unit als string
-		i := strings.Index(line, "(")
-		if i < 0 {
-			continue
-		}
-
-		obis := line[:i]
-		valuesPart := line[i:] // alles inclusief haakjes, of gebruik line[i+1:len(line)-1] voor alleen binnen haakjes
-		if fieldName, ok := obisMap[obis]; ok {
-			values := parseRawValues(valuesPart)
-			rawTelegram.Values[fieldName] = values
-		}
-	}
+	DSMRScanner(scanner, printTestTelegram)
 
 	if err := scanner.Err(); err != nil {
 		log.Fatalf("error reading file: %v", err)
