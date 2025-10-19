@@ -53,6 +53,8 @@ func StoreTelegram(db *sql.DB, deviceID string, tele Telegram, prevGasTimestamp 
 			INSERT INTO iot_data (time, device_id, type, data)
 			VALUES ($1, $2, $3, $4)`,
 			tele.Timestamp, deviceID, entry.Type, entry.Data)
+
+		log.Printf("Record written!")
 		if err != nil {
 			return fmt.Errorf("insert %s: %w", entry.Type, err)
 		}
