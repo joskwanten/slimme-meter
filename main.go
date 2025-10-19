@@ -16,7 +16,7 @@ func main() {
 	baud := 115200
 
 	// PostgreSQL DSN (pas aan)
-	dsn := "host=localhost user=postgres password=postgres dbname=home sslmode=disable"
+	dsn := "host=localhost port=30042 user=postgres password=postgres dbname=home sslmode=disable"
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
